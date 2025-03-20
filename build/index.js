@@ -24,7 +24,7 @@ function getPlatformSpecificCommand(pythonCommand) {
     const isWindows = platform() === 'win32';
     if (isWindows) {
         return {
-            command: `conda activate ${CONDA_ENV_NAME} && ${pythonCommand}`,
+            command: `conda run -n ${CONDA_ENV_NAME} ${pythonCommand}`,
             options: {
                 shell: 'cmd.exe'
             }
@@ -47,7 +47,7 @@ async function executeCode(code, filePath) {
         // Write code to file
         await writeFile(filePath, code, 'utf-8');
         // Get platform-specific command
-        const pythonCmd = `python3 "${filePath}"`;
+        const pythonCmd = platform() === 'win32' ? `python "${filePath}"` : `python3 "${filePath}"`;
         const { command, options } = getPlatformSpecificCommand(pythonCmd);
         // Execute code
         const { stdout, stderr } = await execAsync(command, {
