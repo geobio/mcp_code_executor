@@ -52,6 +52,8 @@ npm run build
 
 To configure the MCP Code Executor server, add the following to your MCP servers configuration file:
 
+### Using Node.js
+
 ```json
 {
   "mcpServers": {
@@ -69,6 +71,26 @@ To configure the MCP Code Executor server, add the following to your MCP servers
   }
 }
 ```
+
+### Using Docker
+
+```json
+{
+  "mcpServers": {
+    "mcp-code-executor": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp-code-executor"
+      ]
+    }
+  }
+}
+```
+
+> **Note:** The Dockerfile has been tested with the venv-uv environment type only. Other environment types may require additional configuration.
 
 ### Environment Variables
 
@@ -164,4 +186,3 @@ Contributions are welcome! Please open an issue or submit a pull request.
 ## License
 
 This project is licensed under the MIT License.
-
