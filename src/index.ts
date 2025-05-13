@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { randomBytes } from 'crypto';
 import { join } from 'path';
-import { mkdir, writeFile, access } from 'fs/promises';
+import { mkdir, writeFile, appendFile, readFile, access } from 'fs/promises';
 import { exec, ExecOptions } from 'child_process';
 import { promisify } from 'util';
 import { platform } from 'os';
@@ -148,6 +148,161 @@ async function executeCode(code: string, filePath: string) {
         return {
             type: 'text',
             text: JSON.stringify(response),
+            isError: true
+        };
+    }
+}
+
+/**
+ * Execute Python code from an existing file and return the result
+ */
+async function executeCodeFromFile(filePath: string) {
+    try {
+        // Ensure file exists
+        await access(filePath);
+
+        // Get platform-specific command
+        const pythonCmd = platform() === 'win32' ? `python "${filePath}"` : `python3 "${filePath}"`;
+        const { command, options } = getPlatformSpecificCommand(pythonCmd);
+
+        // Execute code
+        const { stdout, stderr } = await execAsync(command, {
+            cwd: CODE_STORAGE_DIR,
+            env: { ...process.env },
+            ...options
+        });
+
+        const response = {
+            status: stderr ? 'error' : 'success',
+            output: stderr || stdout,
+            file_path: filePath
+        };
+
+        return {
+            type: 'text',
+            text: JSON.stringify(response),
+            isError: !!stderr
+        };
+    } catch (error) {
+        const response = {
+            status: 'error',
+            error: error instanceof Error ? error.message : String(error),
+            file_path: filePath
+        };
+
+        return {
+            type: 'text',
+            text: JSON.stringify(response),
+            isError: true
+        };
+    }
+}
+
+/**
+ * Create or initialize a new file with content
+ */
+async function initializeCodeFile(content: string, filename?: string) {
+    try {
+        // Generate a filename if not provided
+        let actualFilename;
+        if (filename && typeof filename === 'string') {
+            // Extract base name without extension
+            const baseName = filename.replace(/\.py$/, '');
+            // Add a random suffix to ensure uniqueness
+            actualFilename = `${baseName}_${randomBytes(4).toString('hex')}.py`;
+        } else {
+            // Default filename if none provided
+            actualFilename = `code_${randomBytes(4).toString('hex')}.py`;
+        }
+        
+        const filePath = join(CODE_STORAGE_DIR, actualFilename);
+        
+        // Write initial content to file
+        await writeFile(filePath, content, 'utf-8');
+        
+        return {
+            type: 'text',
+            text: JSON.stringify({
+                status: 'success',
+                message: 'File initialized successfully',
+                file_path: filePath,
+                filename: actualFilename
+            }),
+            isError: false
+        };
+    } catch (error) {
+        return {
+            type: 'text',
+            text: JSON.stringify({
+                status: 'error',
+                error: error instanceof Error ? error.message : String(error)
+            }),
+            isError: true
+        };
+    }
+}
+
+/**
+ * Append content to an existing file
+ */
+async function appendToCodeFile(filePath: string, content: string) {
+    try {
+        // Ensure file exists
+        await access(filePath);
+        
+        // Append content to file
+        await appendFile(filePath, content, 'utf-8');
+        
+        return {
+            type: 'text',
+            text: JSON.stringify({
+                status: 'success',
+                message: 'Content appended successfully',
+                file_path: filePath
+            }),
+            isError: false
+        };
+    } catch (error) {
+        return {
+            type: 'text',
+            text: JSON.stringify({
+                status: 'error',
+                error: error instanceof Error ? error.message : String(error),
+                file_path: filePath
+            }),
+            isError: true
+        };
+    }
+}
+
+/**
+ * Read the content of a code file
+ */
+async function readCodeFile(filePath: string) {
+    try {
+        // Ensure file exists
+        await access(filePath);
+        
+        // Read file content
+        const content = await readFile(filePath, 'utf-8');
+        
+        return {
+            type: 'text',
+            text: JSON.stringify({
+                status: 'success',
+                content: content,
+                file_path: filePath
+            }),
+            isError: false
+        };
+    } catch (error) {
+        return {
+            type: 'text',
+            text: JSON.stringify({
+                status: 'error',
+                error: error instanceof Error ? error.message : String(error),
+                file_path: filePath
+            }),
             isError: true
         };
     }
@@ -361,7 +516,7 @@ print(json.dumps(results))
 const server = new Server(
     {
         name: "code-executor",
-        version: "0.2.0",
+        version: "0.3.0",
     },
     {
         capabilities: {
@@ -378,7 +533,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         tools: [
             {
                 name: "execute_code",
-                description: `Execute Python code in the ${ENV_CONFIG.type} environment`,
+                description: `Execute Python code in the ${ENV_CONFIG.type} environment. For short code snippets only. For longer code, use initialize_code_file and append_to_code_file instead.`,
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -394,6 +549,71 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: ["code"]
                 }
             },
+            {
+                name: "initialize_code_file",
+                description: "Create a new Python file with initial content. Use this as the first step for longer code that may exceed token limits. Follow with append_to_code_file for additional code.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        content: {
+                            type: "string",
+                            description: "Initial content to write to the file"
+                        },
+                        filename: {
+                            type: "string",
+                            description: "Optional: Name of the file (default: generated UUID)"
+                        }
+                    },
+                    required: ["content"]
+                }
+            },
+            {
+                name: "append_to_code_file",
+                description: "Append content to an existing Python code file. Use this to add more code to a file created with initialize_code_file, allowing you to build up larger code bases in parts.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        file_path: {
+                            type: "string",
+                            description: "Full path to the file"
+                        },
+                        content: {
+                            type: "string",
+                            description: "Content to append to the file"
+                        }
+                    },
+                    required: ["file_path", "content"]
+                }
+            },
+            {
+                name: "execute_code_file",
+                description: "Execute an existing Python file. Use this as the final step after building up code with initialize_code_file and append_to_code_file.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        file_path: {
+                            type: "string",
+                            description: "Full path to the Python file to execute"
+                        }
+                    },
+                    required: ["file_path"]
+                }
+            },
+            {
+                name: "read_code_file",
+                description: "Read the content of an existing Python code file. Use this to verify the current state of a file before appending more content or executing it.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        file_path: {
+                            type: "string",
+                            description: "Full path to the file to read"
+                        }
+                    },
+                    required: ["file_path"]
+                }
+            },
+            
             {
                 name: "install_dependencies",
                 description: `Install Python dependencies in the ${ENV_CONFIG.type} environment`,
@@ -472,6 +692,24 @@ interface ExecuteCodeArgs {
     filename?: string;
 }
 
+interface InitializeCodeFileArgs {
+    content?: string;
+    filename?: string;
+}
+
+interface AppendToCodeFileArgs {
+    file_path?: string;
+    content?: string;
+}
+
+interface ExecuteCodeFileArgs {
+    file_path?: string;
+}
+
+interface ReadCodeFileArgs {
+    file_path?: string;
+}
+
 interface InstallDependenciesArgs {
     packages?: string[];
 }
@@ -538,6 +776,77 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 // In case of parsing error, continue with original result
                 console.error("Error adding filename to result:", e);
             }
+
+            return {
+                content: [{
+                    type: "text",
+                    text: result.text,
+                    isError: result.isError
+                }]
+            };
+        }
+        
+        case "initialize_code_file": {
+            const args = request.params.arguments as InitializeCodeFileArgs;
+            if (!args?.content) {
+                throw new Error("Content is required");
+            }
+
+            const result = await initializeCodeFile(args.content, args.filename);
+
+            return {
+                content: [{
+                    type: "text",
+                    text: result.text,
+                    isError: result.isError
+                }]
+            };
+        }
+        
+        case "append_to_code_file": {
+            const args = request.params.arguments as AppendToCodeFileArgs;
+            if (!args?.file_path) {
+                throw new Error("File path is required");
+            }
+            if (!args?.content) {
+                throw new Error("Content is required");
+            }
+
+            const result = await appendToCodeFile(args.file_path, args.content);
+
+            return {
+                content: [{
+                    type: "text",
+                    text: result.text,
+                    isError: result.isError
+                }]
+            };
+        }
+        
+        case "execute_code_file": {
+            const args = request.params.arguments as ExecuteCodeFileArgs;
+            if (!args?.file_path) {
+                throw new Error("File path is required");
+            }
+
+            const result = await executeCodeFromFile(args.file_path);
+
+            return {
+                content: [{
+                    type: "text",
+                    text: result.text,
+                    isError: result.isError
+                }]
+            };
+        }
+        
+        case "read_code_file": {
+            const args = request.params.arguments as ReadCodeFileArgs;
+            if (!args?.file_path) {
+                throw new Error("File path is required");
+            }
+
+            const result = await readCodeFile(args.file_path);
 
             return {
                 content: [{
