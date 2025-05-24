@@ -116,14 +116,14 @@ async function executeCode(code: string, filePath: string) {
         // Write code to file
         await writeFile(filePath, code, 'utf-8');
 
-        // Get platform-specific command
-        const pythonCmd = platform() === 'win32' ? `python "${filePath}"` : `python3 "${filePath}"`;
+        // Get platform-specific command with unbuffered output
+        const pythonCmd = platform() === 'win32' ? `python -u "${filePath}"` : `python3 -u "${filePath}"`;
         const { command, options } = getPlatformSpecificCommand(pythonCmd);
 
         // Execute code
         const { stdout, stderr } = await execAsync(command, {
             cwd: CODE_STORAGE_DIR,
-            env: { ...process.env },
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
             ...options
         });
 
@@ -161,14 +161,14 @@ async function executeCodeFromFile(filePath: string) {
         // Ensure file exists
         await access(filePath);
 
-        // Get platform-specific command
-        const pythonCmd = platform() === 'win32' ? `python "${filePath}"` : `python3 "${filePath}"`;
+        // Get platform-specific command with unbuffered output
+        const pythonCmd = platform() === 'win32' ? `python -u "${filePath}"` : `python3 -u "${filePath}"`;
         const { command, options } = getPlatformSpecificCommand(pythonCmd);
 
-        // Execute code
+        // Execute code with unbuffered Python
         const { stdout, stderr } = await execAsync(command, {
             cwd: CODE_STORAGE_DIR,
-            env: { ...process.env },
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
             ...options
         });
 
@@ -351,10 +351,10 @@ async function installDependencies(packages: string[]) {
         // Get platform-specific command
         const { command, options } = getPlatformSpecificCommand(installCmd);
 
-        // Execute installation
+        // Execute installation with unbuffered Python
         const { stdout, stderr } = await execAsync(command, {
             cwd: CODE_STORAGE_DIR,
-            env: { ...process.env },
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
             ...options
         });
 
@@ -456,13 +456,13 @@ print(json.dumps(results))
 
         await writeFile(checkScriptPath, checkScript, 'utf-8');
 
-        // Execute the check script
-        const pythonCmd = platform() === 'win32' ? `python "${checkScriptPath}"` : `python3 "${checkScriptPath}"`;
+        // Execute the check script with unbuffered output
+        const pythonCmd = platform() === 'win32' ? `python -u "${checkScriptPath}"` : `python3 -u "${checkScriptPath}"`;
         const { command, options } = getPlatformSpecificCommand(pythonCmd);
 
         const { stdout, stderr } = await execAsync(command, {
             cwd: CODE_STORAGE_DIR,
-            env: { ...process.env },
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
             ...options
         });
 
